@@ -170,12 +170,12 @@ void change_block_size(void);
 unsigned char *myvhard;                  //指向虚拟磁盘的起始地址
 useropen openfilelist[MAXOPENFILE];      //用户打开文件表数组
 int curdirid;                            //当前目录的文件描述符fd
-unsigned char *blockaddr[100000];      //磁盘块地址
+unsigned char *blockaddr[1000];      //磁盘块地址
 block0 initblock;                        //声明引导块
-fat fat1[100000], fat2[100000];      //声明FAT表
-const char USERNAME[] = "bowenddd";      //用户名
-int  BLOCKSIZE; //磁盘块大小
-int BLOCKNUM;  //磁盘块总数
+fat fat1[1000], fat2[1000];      //声明FAT表
+const char USERNAME[] = "root";      //用户名
+int  BLOCKSIZE=1024; //磁盘块大小
+int BLOCKNUM=1000;  //磁盘块总数
 
 //-------------------------------------函数实现---------------------------------------
 
@@ -264,13 +264,13 @@ int main(){
                 my_write(fd,-1);
             }
         }
-        else if(strcmp(command, "sf") == 0){
+        /*else if(strcmp(command, "sf") == 0){
             for(int i = 0; i < MAXOPENFILE; i++) {
                 if (openfilelist[i].topenfile){
                     printf("  %d : %s\n", i, openfilelist[i].dir);
                 }
             }
-        }
+        }*/
         else if(strcmp(command, "format") == 0){
             scanf("%s", command);
             my_format();
@@ -278,9 +278,10 @@ int main(){
         else if(strcmp(command, "showfat") == 0){
             show_fat();
         }
+        /*
         else if(strcmp(command,"changesize") == 0){
             change_block_size();
-        }
+        }*/
         else{
             printf("command %s : no such command\n", command);
         }
@@ -437,21 +438,6 @@ int rewrite_dir(char *dir){
     if(dir[len-1] == '/'){
         len--;
     }
-    /*
-    不明觉历
-    int pre = -1;
-    for (int i = 0; i < len; i++){
-        if (dir[len] == '/'){
-            if (pre != -1){
-                if (pre + 1 == i){
-                    printf("rewrite_dir: %s is invaild, please check!\n", dir);
-                    return 0;
-                }
-            }
-            pre = i;
-        }
-    }
-    */
     char newdir[len];
     if(dir[0] == '/'){
         strcpy(newdir, "~");
@@ -525,6 +511,7 @@ int fat_write(unsigned short id, unsigned char *text, int blockoffset, int len){
         memcpy(buf, blockaddr[id], BLOCKSIZE);
         count = min(len, BLOCKSIZE - blockoffset);
         memcpy(buf + blockoffset, text + ret, count);
+        memset(blockaddr[id],'0',BLOCKSIZE);
         memcpy(blockaddr[id], buf, BLOCKSIZE);
         len -= count;
         ret += count;
@@ -840,7 +827,7 @@ int my_write(int fd, int pos){
     if(op[0] != 'w'){
         if(pos >= 0){
             if(pos <= file->open_fcb.length){
-                file->count = pos;
+                //file->count = pos;
             }
             else{
                 printf("ERROR:\n");
