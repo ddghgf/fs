@@ -124,7 +124,7 @@ int my_read(int fd, int pos);
 void my_reload(int fd);
 
 //把键盘输入的信息写入一个打开文件
-int my_write(int fd, int pos);
+int my_write(int fd);
 
 //把一个指定目录的FCB的free置为1
 void my_rmdir(char *dirname);
@@ -258,10 +258,7 @@ int main(){
         else if(strcmp(command, "write") == 0){
             scanf("%d %d", &fd, &pos);
             if(pos >= 0){
-                my_write(fd,pos);
-            }
-            else{
-                my_write(fd,-1);
+                my_write(fd);
             }
         }
         /*else if(strcmp(command, "sf") == 0){
@@ -361,6 +358,7 @@ int check_fd(int fd){
     return 1;
 }
 
+//split dir by '/'
 int spiltDir(char dirs[DIRLEN][DIRLEN], char *filename){
     int bg = 0;
     int ed = strlen(filename);
@@ -541,41 +539,18 @@ int do_write(int fd, unsigned char *text, int len, char op){
         }
         blockoffset = (blockoffset + ret) % BLOCKSIZE;
         fat_write(id, buf, blockoffset, strlen(buf));
+        fcbp->length += ret;
+        free(buf);
+    }
+    else if(op=='w'){
+        ret = fat_write(id, text, blockoffset, len);
+        fcbp->length += ret;
     }
     else{
         ret = fat_write(id, text, blockoffset, len);
+        fcbp->length=ret > fcbp->length ? ret : fcbp->length;
     }
-    fcbp->length += ret;
     openfilelist[fd].fcbstate = 1;
-    // 如果文件夹被写了，那么其'.'也要被写进去
-    // 其子文件夹的'..'也要被更新
-    if(fcbp->attribute == 0){
-        fcb tmp;
-        memcpy(&tmp, fcbp, sizeof(fcb));
-        strcpy(tmp.filename, ".");
-        memcpy(blockaddr[fcbp->first], &tmp, sizeof(fcb));
-        // 如果是根目录的话，".."也要被修改
-        strcpy(tmp.filename, "..");
-        if(fcbp->first == 5){
-            memcpy(blockaddr[fcbp->first] + sizeof(fcb), &tmp, sizeof(fcb));
-        }
-        // 从磁盘中读出当前目录的信息
-        unsigned char buf[SIZE];
-        int read_size = read_ls(fd, buf, fcbp->length);
-        if(read_size == -1){
-            printf("ERROR:\n");
-            printf("do_write: read_ls error\n");
-            return 0;
-        }
-        fcb dirfcb;
-        for(int i = 2 * sizeof(fcb); i < read_size; i += sizeof(fcb)){
-            memcpy(&dirfcb, buf + i, sizeof(fcb));
-            if(dirfcb.free || dirfcb.attribute){
-                continue;
-            }
-            memcpy(blockaddr[dirfcb.first] + sizeof(fcb), &tmp, sizeof(fcb));
-        }
-    }
     return ret;
 }
 
@@ -796,7 +771,7 @@ void my_reload(int fd){
     return;
 }
 
-int my_write(int fd, int pos){
+int my_write(int fd){
     char content[SIZE];
     if((fd < 0 || fd >= MAXOPENFILE) || (openfilelist[fd].topenfile == 0) ||(openfilelist[fd].open_fcb.attribute == 0)){
         printf("ERROR:\n");
@@ -819,22 +794,13 @@ int my_write(int fd, int pos){
         file->open_fcb.length = 0;
         fatFree(fat1[file->open_fcb.first].id);
     }
-    else if(op[0] != 'o'){
+    else if(op[0]=='o'){
+        file->count=0;
+    }
+    else{
         printf("ERROR:\n");
         printf("my_write: invaild write style!\n");
         return -1;
-    }
-    if(op[0] != 'w'){
-        if(pos >= 0){
-            if(pos <= file->open_fcb.length){
-                //file->count = pos;
-            }
-            else{
-                printf("ERROR:\n");
-                printf("my_write: pos is invaild!\n");
-                return -1;
-            }
-        }
     }
     int ret = 0;
     int tmp;
@@ -853,12 +819,6 @@ int my_write(int fd, int pos){
         }
         file->count += tmp;
         ret += tmp;
-        if(op[0] == 'o'){
-            file->open_fcb.length -= tmp;
-            if(tmp + pos > file->open_fcb.length){
-                file->open_fcb.length = tmp + pos - openfilelist->open_fcb.length;
-            }
-        }
     }
     my_close(fd);
     return ret;
