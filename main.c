@@ -178,7 +178,7 @@ int  BLOCKSIZE=1024; //磁盘块大小
 int BLOCKNUM=1000;  //磁盘块总数
 
 //-------------------------------------函数实现---------------------------------------
-
+//szj
 int main(){
     int fd;
     int pos;
@@ -289,6 +289,113 @@ int main(){
     return 0;
 }
 
+void startsys(){
+    // 各种变量初始化
+    myvhard = (unsigned char*)malloc(SIZE);
+    // 准备读入 myfsys 文件信息
+    FILE *fp = fopen("myfsys", "rb");
+    char need_format = 0;
+    // 判断是否需要格式化
+    if(fp != NULL){
+        unsigned char *buf = (unsigned char*)malloc(SIZE);
+        fread(buf, 1, SIZE, fp);
+        memcpy(myvhard, buf, SIZE);
+        memcpy(&initblock, myvhard, sizeof(block0));
+        BLOCKNUM = initblock.blocknum;
+        BLOCKSIZE = initblock.blocksize;
+        char choose;
+        printf("初始化虚拟文件系统...\n");
+        printf("您保存的文件系统空间大小为: %d\n磁盘块大小为: %d\n磁盘块数量为： %d\n", SIZE, BLOCKSIZE, BLOCKNUM);
+        printf("您是否需要更改磁盘块大小？(y/n):\n");
+        printf("\033[31m更改磁盘块大小会格式化磁盘空间，请谨慎考虑\033[0m\n");
+        scanf("%c",&choose);
+        if(choose == 'y'){
+            need_format = 1;
+        }
+        free(buf);
+        fclose(fp);
+    }
+    else {
+        need_format = 1;
+    }
+
+    // 不需要格式化的话接着读入fat信息
+    if(need_format == 0){
+        for(int i = 0; i < BLOCKNUM; i++){
+            blockaddr[i] = i * BLOCKSIZE + myvhard;
+        }
+        for(int i = 0; i < MAXOPENFILE; i++){
+            openfilelist[i].topenfile = 0;
+        }
+        memcpy(fat1, blockaddr[1], BLOCKSIZE*sizeof(fat));
+        memcpy(fat2, blockaddr[3], BLOCKSIZE*sizeof(fat));
+        printf("载入文件系统成功...\n");
+    }
+    else {
+        printf("创建文件系统...\n");
+        my_format();
+    }
+
+    // 把根目录fcb放入打开文件表中，设定当前目录为根目录
+    curdirid = 0;
+    memcpy(&openfilelist[curdirid].open_fcb, blockaddr[5], sizeof(fcb));
+    useropen_init(&openfilelist[curdirid], 5, 0, "~/");
+}
+
+void my_reload(int fd){
+    if(check_fd(fd) == 0){
+        return ;
+    }
+    fat_read(openfilelist[fd].dirno, (unsigned char*)&openfilelist[fd].open_fcb, openfilelist[fd].diroff, sizeof(fcb));
+    return;
+}
+
+void my_exitsys(){
+    //关闭所有打开文件项
+    for(int i = 0; i < MAXOPENFILE; i++){
+        my_close(i);
+    }
+    memcpy(blockaddr[0], &initblock, sizeof(initblock));
+    memcpy(blockaddr[1], fat1, BLOCKNUM*sizeof(fat));
+    memcpy(blockaddr[3], fat1, BLOCKNUM*sizeof(fat));
+    fcb *testfcb;
+    //将内存中的磁盘块信息写入文件"myfsys"中保存。
+    FILE *fp = fopen("myfsys", "wb");
+    fwrite(myvhard, BLOCKSIZE, BLOCKNUM, fp);
+    free(myvhard);
+    fclose(fp);
+}
+
+void my_format(){
+    printf("请输入磁盘块大小，和数量：\n");
+    scanf("%d %d",&BLOCKSIZE,&BLOCKNUM);
+    for(int i = 0; i < BLOCKNUM; i++){
+        blockaddr[i] = i * BLOCKSIZE + myvhard;
+    }
+    for(int i = 0; i < MAXOPENFILE; i++){
+        openfilelist[i].topenfile = 0;
+    }
+    initblock.root = 5;
+    initblock.startblock = blockaddr[5];
+    initblock.blocksize = BLOCKSIZE;
+    initblock.blocknum = BLOCKNUM;
+    for(int i = 0; i < 5; i++){
+        fat1[i].id = END;
+        fat2[i].id = END;
+    }
+    for(int i = 5; i < BLOCKNUM; i++){
+        fat1[i].id = FREE;
+        fat2[i].id = FREE;
+    }
+    fat1[5].id = END;
+    fcb root;
+    fcb_init(&root, ".", 5, 0);
+    memcpy(blockaddr[5], &root, sizeof(fcb));
+    strcpy(root.filename, "..");
+    memcpy(blockaddr[5] + sizeof(fcb), &root, sizeof(fcb));
+    printf("初始化完成\n");
+}
+
 void fcb_init(fcb *new_fcb, const char* filename, unsigned short first, unsigned char attribute){
     strcpy(new_fcb->filename, filename);
     new_fcb->first = first;
@@ -313,6 +420,37 @@ void useropen_init(useropen *openfile, int dirno, int diroff, const char* dir){
     openfile->count = openfile->open_fcb.length;
 }
 
+void change_block_size(){
+    // 各种变量初始化
+    myvhard = (unsigned char*)malloc(SIZE);
+    printf("\033[31m更改磁盘块大小会格式化磁盘空间，请谨慎考虑\033[0m\n");
+    printf("您是否需要更改磁盘块大小？(y/n):\n");
+    char choose;
+    getchar();
+    scanf("%c",&choose);
+    if(choose != 'y'){
+        return ;
+    }
+    my_format();
+    // 把根目录fcb放入打开文件表中，设定当前目录为根目录
+    curdirid = 0;
+    memcpy(&openfilelist[curdirid].open_fcb, blockaddr[5], sizeof(fcb));
+    useropen_init(&openfilelist[curdirid], 5, 0, "~/");
+}
+
+void show_fat(){
+    for(int i = 0 ; i < BLOCKNUM ; i += 16){
+        for(int j = 0 ; j < 16 ; j++){
+            if(i + j < BLOCKNUM){
+                printf("%.4x ",fat1[i+j].id);
+            }
+        }
+        printf("\n");
+    }
+}
+
+
+//smh
 void fatFree(int id){
     if(id == END){
         return;
@@ -349,105 +487,6 @@ int getNextFat(int id){
     return fat1[id].id;
 }
 
-int check_fd(int fd){
-    if((fd < 0 || fd >= MAXOPENFILE)){
-        printf("ERROR:\n");
-        printf("check_fd: %d is invaild index\n", fd);
-        return 0;
-    }
-    return 1;
-}
-
-//split dir by '/'
-int spiltDir(char dirs[DIRLEN][DIRLEN], char *filename){
-    int bg = 0;
-    int ed = strlen(filename);
-    if(filename[0] == '/'){
-        bg++;
-    }
-    if(filename[ed - 1] == '/'){
-        ed--;
-    }
-    int ret = 0;
-    int tlen = 0;
-    for(int i = bg; i < ed; i++){
-        if(filename[i] == '/'){
-            dirs[ret][tlen] = '\0';
-            tlen = 0;
-            ret++;
-        }
-        else{
-            dirs[ret][tlen] = filename[i];
-            tlen++;
-        }
-    }
-    dirs[ret][tlen] = '\0';
-    return ret+1;
-}
-
-void popLastDir(char *dir){
-    int len = strlen(dir) - 1;
-    while(dir[len - 1] != '/'){
-        len--;
-    }
-    dir[len] = '\0';
-}
-
-void splitLastDir(char *dir, char new_dir[2][DIRLEN]){
-    int len = strlen(dir) - 1;
-    int flag = -1;
-    for(int i = len; i >= 0; i--){
-        if(dir[i] == '/'){
-            flag = i;
-            break;
-        }
-    }
-    if(flag == -1){
-        printf("ERROR:\n");
-        printf("splitLastDir: can\'t split %s\n", dir);
-        return;
-    }
-    int tlen = 0;
-    for(int i = 0; i < flag; i++){
-        new_dir[0][tlen] = dir[i];
-        tlen++;
-    }
-    new_dir[0][tlen] = '\0';
-    tlen = 0;
-    for(int i = flag + 1; i <= len; i++){
-        new_dir[1][tlen] = dir[i];
-        tlen++;
-    }
-    new_dir[1][tlen] = '\0';
-}
-
-void getPos(int *id, int *offset, unsigned short first, int length){
-    int blockorder = length / BLOCKSIZE;
-    *offset = length % BLOCKSIZE;
-    *id = first;
-    while(blockorder){
-        blockorder--;
-        *id = fat1[*id].id;
-    }
-}
-
-int rewrite_dir(char *dir){
-    int len = strlen(dir);
-    if(dir[len-1] == '/'){
-        len--;
-    }
-    char newdir[len];
-    if(dir[0] == '/'){
-        strcpy(newdir, "~");
-    }
-    else{
-        strcpy(newdir, openfilelist[curdirid].dir);
-    }
-    strcat(newdir, dir);
-    strcpy(dir, newdir);
-    return 1;
-}
-
 int fat_read(unsigned short id, unsigned char *text, int offset, int len){
     int ret = 0;
     unsigned char *buf = (unsigned char*)malloc(BLOCKSIZE);
@@ -475,6 +514,37 @@ int do_read(int fd, unsigned char *text, int len){
         id = fat1[id].id;
     }
     int ret = fat_read(id, text, blockoffset, len);
+    return ret;
+}
+
+int my_read(int fd, int pos){
+    if((fd < 0  || fd >= MAXOPENFILE) || (openfilelist[fd].topenfile == 0) || (openfilelist[fd].open_fcb.attribute == 0)){
+        printf("my_read: fd invaild\n");
+        return -1;
+    }
+    unsigned char *buf = (unsigned char *)malloc(SIZE);
+    if(pos >= 0){
+        if(pos <= openfilelist[fd].open_fcb.length){
+            openfilelist[fd].count = pos;
+        }
+        else{
+            printf("ERROR:\n");
+            printf("my_read: pos is invalid!\n");
+            return -1;
+        }
+    }
+    else{
+        openfilelist[fd].count = 0;
+    }
+    int len = openfilelist[fd].open_fcb.length - openfilelist[fd].count;
+    int ret = do_read(fd, buf, len);
+    if(ret == -1){
+        free(buf);
+        printf("my_read: do_read error\n");
+        return -1;
+    }
+    buf[ret] = '\0';
+    printf("%s\n", buf);
     return ret;
 }
 
@@ -554,95 +624,61 @@ int do_write(int fd, unsigned char *text, int len, char op){
     return ret;
 }
 
-int getFcb(fcb* fcbp, int *dirno, int *diroff, int fd, const char *dir){
-    if(fd == -1){
-        memcpy(fcbp, blockaddr[5], sizeof(fcb));
-        *dirno = 5;
-        *diroff = 0;
-        return 1;
+int my_write(int fd){
+    char content[SIZE];
+    if((fd < 0 || fd >= MAXOPENFILE) || (openfilelist[fd].topenfile == 0) ||(openfilelist[fd].open_fcb.attribute == 0)){
+        printf("ERROR:\n");
+        printf("my_write: fd invaild\n");
+        return -1;
     }
     useropen *file = &openfilelist[fd];
-    //从磁盘中读出当前目录的信息
-    unsigned char *buf = (unsigned char *)malloc(SIZE);
-    int read_size = read_ls(fd, buf, file->open_fcb.length);
-    if(read_size == -1){
+    printf("please input me the write style\n");
+    printf("  a : append write\n");
+    printf("  w : truncate write\n");
+    printf("  o : overwrite write\n");
+    char op[DIRLEN];
+    scanf("%s", op);
+    getchar();
+    if(op[0] == 'a'){
+        file->count = file->open_fcb.length;
+    }
+    else if(op[0] == 'w'){
+        file->count = 0;
+        file->open_fcb.length = 0;
+        fatFree(fat1[file->open_fcb.first].id);
+    }
+    else if(op[0]=='o'){
+        file->count=0;
+    }
+    else{
         printf("ERROR:\n");
-        printf("getFcb: read_ls error\n");
+        printf("my_write: invaild write style!\n");
         return -1;
     }
-    fcb dirfcb;
-    int flag = -1;
-    for(int i = 0; i < read_size; i += sizeof(fcb)){
-        memcpy(&dirfcb, buf + i, sizeof(fcb));
-        if(dirfcb.free){
-            continue;
-        }
-        if(strcmp(dirfcb.filename, dir)==0){
-            flag = i;
+    int ret = 0;
+    int tmp;
+    printf("input content,end with input 'wq!'\n");
+    while(fgets(content,SIZE*sizeof(char),stdin)){
+        if(strncmp(content,"wq!",3) == 0){
             break;
         }
+        int len = strlen(content);
+        //content[len] = '\n';
+        tmp = do_write(fd, (unsigned char*)content, len-1, op[0]);
+        if(tmp == -1){
+            printf("ERROR:\n");
+            printf("my_write: do_write error\n");
+            return -1;
+        }
+        file->count += tmp;
+        ret += tmp;
     }
-    free(buf);
-    //没有找到需要的文件
-    if(flag == -1){
-        return -1;
-    }
-    //找到的话就开始计算相关信息，改变对应打开文件项的值
-    getPos(dirno, diroff, file->open_fcb.first, flag);
-    memcpy(fcbp, &dirfcb, sizeof(fcb));
-    return 1;
+    my_close(fd);
+    return ret;
 }
 
-int getOpenlist(int fd, const char *org_dir){
-    // 把路径名处理成绝对路径
-    char dir[DIRLEN];
-    if(fd == -1){
-        strcpy(dir, "~/");
-    }
-    else{
-        strcpy(dir, openfilelist[fd].dir);
-        strcat(dir, org_dir);
-    }
-    // 如果有打开的目录和想打开的目录重名，必须把原目录的内容写回磁盘
-    for(int i = 0; i < MAXOPENFILE; i++){
-        if(i != fd){
-            if(openfilelist[i].topenfile==1 && strcmp(openfilelist[i].dir, dir)==0){
-                my_save(i);
-            }
-        }
-    }
-    int fileid = getFreeOpenlist();
-    if(fileid == -1){
-        printf("ERROR:\n");
-        printf("getOpenlist: openlist is full\n");
-        return -1;
-    }
-    fcb dirfcb;
-    useropen *file = &openfilelist[fileid];
-    int ret;
-    if(fd == -1){
-        ret = getFcb(&file->open_fcb, &file->dirno, &file->diroff, -1, ".");
-    }
-    else{
-        ret = getFcb(&file->open_fcb, &file->dirno, &file->diroff, fd, org_dir);
-    }
-    strcpy(file->dir, dir);
-    file->fcbstate = 0;
-    file->topenfile = 1;
-    //如果打开的是一个文件夹，就在路径后面加上'/'
-    if(file->open_fcb.attribute==0){
-        int len = strlen(file->dir);
-        if(file->dir[len-1] != '/'){
-            strcat(file->dir, "/");
-        }
-    }
-    if(ret == -1){
-        file->topenfile = 0;
-        return -1;
-    }
-    return fileid;
-}
 
+//chq
 int my_open(char *filename){
     char dirs[DIRLEN][DIRLEN];
     int count = spiltDir(dirs, filename);
@@ -696,132 +732,32 @@ int my_open(char *filename){
     return fd;
 }
 
-int read_ls(int fd, unsigned char *text, int len){
-    int tcount = openfilelist[fd].count;
-    //将当前的读写指针修改为最开始，读取当前目录的所有内容
-    openfilelist[fd].count = 0;
-    int ret = do_read(fd, text, len);
-    openfilelist[fd].count = tcount;
-    return ret;
-}
-
-void my_ls(){
-    // 从磁盘中读出当前目录的信息
-    unsigned char *buf = (unsigned char*)malloc(SIZE);
-    int read_size = read_ls(curdirid, buf, openfilelist[curdirid].open_fcb.length);
-    if(read_size == -1){
-        free(buf);
-        printf("ERROR:\n");
-        printf("my_ls: read_ls error\n");
-        return;
-    }
-    fcb dirfcb;
-    for(int i = 0; i < read_size; i += sizeof(fcb)){
-        memcpy(&dirfcb, buf + i, sizeof(fcb));
-        if(dirfcb.free){
-            continue;
-        }
-        if(dirfcb.attribute){
-            printf(" %s", dirfcb.filename);
-        }
-        else{
-            printf(" \x1B[32m%s\x1B[0m", dirfcb.filename);
-        }
-    }
-    printf("\n");
-    free(buf);
-}
-
-int my_read(int fd, int pos){
-    if((fd < 0  || fd >= MAXOPENFILE) || (openfilelist[fd].topenfile == 0) || (openfilelist[fd].open_fcb.attribute == 0)){
-        printf("my_read: fd invaild\n");
-        return -1;
-    }
-    unsigned char *buf = (unsigned char *)malloc(SIZE);
-    if(pos >= 0){
-        if(pos <= openfilelist[fd].open_fcb.length){
-            openfilelist[fd].count = pos;
-        }
-        else{
-            printf("ERROR:\n");
-            printf("my_read: pos is invalid!\n");
-            return -1;
-        }
-    }
-    else{
-        openfilelist[fd].count = 0;
-    }
-    int len = openfilelist[fd].open_fcb.length - openfilelist[fd].count;
-    int ret = do_read(fd, buf, len);
-    if(ret == -1){
-        free(buf);
-        printf("my_read: do_read error\n");
-        return -1;
-    }
-    buf[ret] = '\0';
-    printf("%s\n", buf);
-    return ret;
-}
-
-void my_reload(int fd){
-    if(check_fd(fd) == 0){
-        return ;
-    }
-    fat_read(openfilelist[fd].dirno, (unsigned char*)&openfilelist[fd].open_fcb, openfilelist[fd].diroff, sizeof(fcb));
-    return;
-}
-
-int my_write(int fd){
-    char content[SIZE];
-    if((fd < 0 || fd >= MAXOPENFILE) || (openfilelist[fd].topenfile == 0) ||(openfilelist[fd].open_fcb.attribute == 0)){
-        printf("ERROR:\n");
-        printf("my_write: fd invaild\n");
-        return -1;
-    }
-    useropen *file = &openfilelist[fd];
-    printf("please input me the write style\n");
-    printf("  a : append write\n");
-    printf("  w : truncate write\n");
-    printf("  o : overwrite write\n");
-    char op[DIRLEN];
-    scanf("%s", op);
-    getchar();
-    if(op[0] == 'a'){
-        file->count = file->open_fcb.length;
-    }
-    else if(op[0] == 'w'){
-        file->count = 0;
-        file->open_fcb.length = 0;
-        fatFree(fat1[file->open_fcb.first].id);
-    }
-    else if(op[0]=='o'){
-        file->count=0;
-    }
-    else{
-        printf("ERROR:\n");
-        printf("my_write: invaild write style!\n");
-        return -1;
-    }
-    int ret = 0;
-    int tmp;
-    printf("input content,end with input 'wq!'\n");
-    while(fgets(content,SIZE*sizeof(char),stdin)){
-        if(strncmp(content,"wq!",3) == 0){
+void splitLastDir(char *dir, char new_dir[2][DIRLEN]){
+    int len = strlen(dir) - 1;
+    int flag = -1;
+    for(int i = len; i >= 0; i--){
+        if(dir[i] == '/'){
+            flag = i;
             break;
         }
-        int len = strlen(content);
-        //content[len] = '\n';
-        tmp = do_write(fd, (unsigned char*)content, len-1, op[0]);
-        if(tmp == -1){
-            printf("ERROR:\n");
-            printf("my_write: do_write error\n");
-            return -1;
-        }
-        file->count += tmp;
-        ret += tmp;
     }
-    my_close(fd);
-    return ret;
+    if(flag == -1){
+        printf("ERROR:\n");
+        printf("splitLastDir: can\'t split %s\n", dir);
+        return;
+    }
+    int tlen = 0;
+    for(int i = 0; i < flag; i++){
+        new_dir[0][tlen] = dir[i];
+        tlen++;
+    }
+    new_dir[0][tlen] = '\0';
+    tlen = 0;
+    for(int i = flag + 1; i <= len; i++){
+        new_dir[1][tlen] = dir[i];
+        tlen++;
+    }
+    new_dir[1][tlen] = '\0';
 }
 
 void my_rmdir(char *dirname){
@@ -892,36 +828,6 @@ void my_rm(char *filename){
     fatFree(openfilelist[fd].open_fcb.first);
     openfilelist[fd].fcbstate = 1;
     my_close(fd);
-}
-
-void my_format(){
-    printf("请输入磁盘块大小，和数量：\n");
-    scanf("%d %d",&BLOCKSIZE,&BLOCKNUM);
-    for(int i = 0; i < BLOCKNUM; i++){
-        blockaddr[i] = i * BLOCKSIZE + myvhard;
-    }
-    for(int i = 0; i < MAXOPENFILE; i++){
-        openfilelist[i].topenfile = 0;
-    }
-    initblock.root = 5;
-    initblock.startblock = blockaddr[5];
-    initblock.blocksize = BLOCKSIZE;
-    initblock.blocknum = BLOCKNUM;
-    for(int i = 0; i < 5; i++){
-        fat1[i].id = END;
-        fat2[i].id = END;
-    }
-    for(int i = 5; i < BLOCKNUM; i++){
-        fat1[i].id = FREE;
-        fat2[i].id = FREE;
-    }
-    fat1[5].id = END;
-    fcb root;
-    fcb_init(&root, ".", 5, 0);
-    memcpy(blockaddr[5], &root, sizeof(fcb));
-    strcpy(root.filename, "..");
-    memcpy(blockaddr[5] + sizeof(fcb), &root, sizeof(fcb));
-    printf("初始化完成\n");
 }
 
 int my_touch(char *filename, int attribute, int *rpafd){
@@ -1030,75 +936,6 @@ void my_mkdir(char *dirname){
     free(buf);
 }
 
-void startsys(){
-    // 各种变量初始化
-    myvhard = (unsigned char*)malloc(SIZE);
-    // 准备读入 myfsys 文件信息
-    FILE *fp = fopen("myfsys", "rb");
-    char need_format = 0;
-    // 判断是否需要格式化
-    if(fp != NULL){
-        unsigned char *buf = (unsigned char*)malloc(SIZE);
-        fread(buf, 1, SIZE, fp);
-        memcpy(myvhard, buf, SIZE);
-        memcpy(&initblock, myvhard, sizeof(block0));
-        BLOCKNUM = initblock.blocknum;
-        BLOCKSIZE = initblock.blocksize;
-        char choose;
-        printf("初始化虚拟文件系统...\n");
-        printf("您保存的文件系统空间大小为: %d\n磁盘块大小为: %d\n磁盘块数量为： %d\n", SIZE, BLOCKSIZE, BLOCKNUM);
-        printf("您是否需要更改磁盘块大小？(y/n):\n");
-        printf("\033[31m更改磁盘块大小会格式化磁盘空间，请谨慎考虑\033[0m\n");
-        scanf("%c",&choose);
-        if(choose == 'y'){
-            need_format = 1;
-        }
-        free(buf);
-        fclose(fp);
-    }
-    else {
-        need_format = 1;
-    }
-
-    // 不需要格式化的话接着读入fat信息
-    if(need_format == 0){
-        for(int i = 0; i < BLOCKNUM; i++){
-            blockaddr[i] = i * BLOCKSIZE + myvhard;
-        }
-        for(int i = 0; i < MAXOPENFILE; i++){
-            openfilelist[i].topenfile = 0;
-        }
-        memcpy(fat1, blockaddr[1], BLOCKSIZE*sizeof(fat));
-        memcpy(fat2, blockaddr[3], BLOCKSIZE*sizeof(fat));
-        printf("载入文件系统成功...\n");
-    }
-    else {
-        printf("创建文件系统...\n");
-        my_format();
-    }
-
-    // 把根目录fcb放入打开文件表中，设定当前目录为根目录
-    curdirid = 0;
-    memcpy(&openfilelist[curdirid].open_fcb, blockaddr[5], sizeof(fcb));
-    useropen_init(&openfilelist[curdirid], 5, 0, "~/");
-}
-
-void my_exitsys(){
-    //关闭所有打开文件项
-    for(int i = 0; i < MAXOPENFILE; i++){
-        my_close(i);
-    }
-    memcpy(blockaddr[0], &initblock, sizeof(initblock));
-    memcpy(blockaddr[1], fat1, BLOCKNUM*sizeof(fat));
-    memcpy(blockaddr[3], fat1, BLOCKNUM*sizeof(fat));
-    fcb *testfcb;
-    //将内存中的磁盘块信息写入文件"myfsys"中保存。
-    FILE *fp = fopen("myfsys", "wb");
-    fwrite(myvhard, BLOCKSIZE, BLOCKNUM, fp);
-    free(myvhard);
-    fclose(fp);
-}
-
 void my_save(int fd){
     if(check_fd(fd) == 0){
         printf("ERROR:\n");
@@ -1147,31 +984,203 @@ void my_cd(char *dirname){
     curdirid = fd;
 }
 
-void show_fat(){
-    for(int i = 0 ; i < BLOCKNUM ; i += 16){
-        for(int j = 0 ; j < 16 ; j++){
-            if(i + j < BLOCKNUM){
-                printf("%.4x ",fat1[i+j].id);
-            }
+
+
+
+//lsx
+int check_fd(int fd){
+    if((fd < 0 || fd >= MAXOPENFILE)){
+        printf("ERROR:\n");
+        printf("check_fd: %d is invaild index\n", fd);
+        return 0;
+    }
+    return 1;
+}
+
+int spiltDir(char dirs[DIRLEN][DIRLEN], char *filename){
+    int bg = 0;
+    int ed = strlen(filename);
+    if(filename[0] == '/'){
+        bg++;
+    }
+    if(filename[ed - 1] == '/'){
+        ed--;
+    }
+    int ret = 0;
+    int tlen = 0;
+    for(int i = bg; i < ed; i++){
+        if(filename[i] == '/'){
+            dirs[ret][tlen] = '\0';
+            tlen = 0;
+            ret++;
         }
-        printf("\n");
+        else{
+            dirs[ret][tlen] = filename[i];
+            tlen++;
+        }
+    }
+    dirs[ret][tlen] = '\0';
+    return ret+1;
+}
+
+void getPos(int *id, int *offset, unsigned short first, int length){
+    int blockorder = length / BLOCKSIZE;
+    *offset = length % BLOCKSIZE;
+    *id = first;
+    while(blockorder){
+        blockorder--;
+        *id = fat1[*id].id;
     }
 }
 
-void change_block_size(){
-    // 各种变量初始化
-    myvhard = (unsigned char*)malloc(SIZE);
-    printf("\033[31m更改磁盘块大小会格式化磁盘空间，请谨慎考虑\033[0m\n");
-    printf("您是否需要更改磁盘块大小？(y/n):\n");
-    char choose;
-    getchar();
-    scanf("%c",&choose);
-    if(choose != 'y'){
-        return ;
+int rewrite_dir(char *dir){
+    int len = strlen(dir);
+    if(dir[len-1] == '/'){
+        len--;
     }
-    my_format();
-    // 把根目录fcb放入打开文件表中，设定当前目录为根目录
-    curdirid = 0;
-    memcpy(&openfilelist[curdirid].open_fcb, blockaddr[5], sizeof(fcb));
-    useropen_init(&openfilelist[curdirid], 5, 0, "~/");
+    char newdir[len];
+    if(dir[0] == '/'){
+        strcpy(newdir, "~");
+    }
+    else{
+        strcpy(newdir, openfilelist[curdirid].dir);
+    }
+    strcat(newdir, dir);
+    strcpy(dir, newdir);
+    return 1;
 }
+
+int getFcb(fcb* fcbp, int *dirno, int *diroff, int fd, const char *dir){
+    if(fd == -1){
+        memcpy(fcbp, blockaddr[5], sizeof(fcb));
+        *dirno = 5;
+        *diroff = 0;
+        return 1;
+    }
+    useropen *file = &openfilelist[fd];
+    //从磁盘中读出当前目录的信息
+    unsigned char *buf = (unsigned char *)malloc(SIZE);
+    int read_size = read_ls(fd, buf, file->open_fcb.length);
+    if(read_size == -1){
+        printf("ERROR:\n");
+        printf("getFcb: read_ls error\n");
+        return -1;
+    }
+    fcb dirfcb;
+    int flag = -1;
+    for(int i = 0; i < read_size; i += sizeof(fcb)){
+        memcpy(&dirfcb, buf + i, sizeof(fcb));
+        if(dirfcb.free){
+            continue;
+        }
+        if(strcmp(dirfcb.filename, dir)==0){
+            flag = i;
+            break;
+        }
+    }
+    free(buf);
+    //没有找到需要的文件
+    if(flag == -1){
+        return -1;
+    }
+    //找到的话就开始计算相关信息，改变对应打开文件项的值
+    getPos(dirno, diroff, file->open_fcb.first, flag);
+    memcpy(fcbp, &dirfcb, sizeof(fcb));
+    return 1;
+}
+
+int getOpenlist(int fd, const char *org_dir){
+    // 把路径名处理成绝对路径
+    char dir[DIRLEN];
+    if(fd == -1){
+        strcpy(dir, "~/");
+    }
+    else{
+        strcpy(dir, openfilelist[fd].dir);
+        strcat(dir, org_dir);
+    }
+    // 如果有打开的目录和想打开的目录重名，必须把原目录的内容写回磁盘
+    for(int i = 0; i < MAXOPENFILE; i++){
+        if(i != fd){
+            if(openfilelist[i].topenfile==1 && strcmp(openfilelist[i].dir, dir)==0){
+                my_save(i);
+            }
+        }
+    }
+    int fileid = getFreeOpenlist();
+    if(fileid == -1){
+        printf("ERROR:\n");
+        printf("getOpenlist: openlist is full\n");
+        return -1;
+    }
+    fcb dirfcb;
+    useropen *file = &openfilelist[fileid];
+    int ret;
+    if(fd == -1){
+        ret = getFcb(&file->open_fcb, &file->dirno, &file->diroff, -1, ".");
+    }
+    else{
+        ret = getFcb(&file->open_fcb, &file->dirno, &file->diroff, fd, org_dir);
+    }
+    strcpy(file->dir, dir);
+    file->fcbstate = 0;
+    file->topenfile = 1;
+    //如果打开的是一个文件夹，就在路径后面加上'/'
+    if(file->open_fcb.attribute==0){
+        int len = strlen(file->dir);
+        if(file->dir[len-1] != '/'){
+            strcat(file->dir, "/");
+        }
+    }
+    if(ret == -1){
+        file->topenfile = 0;
+        return -1;
+    }
+    return fileid;
+}
+
+int read_ls(int fd, unsigned char *text, int len){
+    int tcount = openfilelist[fd].count;
+    //将当前的读写指针修改为最开始，读取当前目录的所有内容
+    openfilelist[fd].count = 0;
+    int ret = do_read(fd, text, len);
+    openfilelist[fd].count = tcount;
+    return ret;
+}
+
+void my_ls(){
+    // 从磁盘中读出当前目录的信息
+    unsigned char *buf = (unsigned char*)malloc(SIZE);
+    int read_size = read_ls(curdirid, buf, openfilelist[curdirid].open_fcb.length);
+    if(read_size == -1){
+        free(buf);
+        printf("ERROR:\n");
+        printf("my_ls: read_ls error\n");
+        return;
+    }
+    fcb dirfcb;
+    for(int i = 0; i < read_size; i += sizeof(fcb)){
+        memcpy(&dirfcb, buf + i, sizeof(fcb));
+        if(dirfcb.free){
+            continue;
+        }
+        if(dirfcb.attribute){
+            printf(" %s", dirfcb.filename);
+        }
+        else{
+            printf(" \x1B[32m%s\x1B[0m", dirfcb.filename);
+        }
+    }
+    printf("\n");
+    free(buf);
+}
+
+void popLastDir(char *dir){
+    int len = strlen(dir) - 1;
+    while(dir[len - 1] != '/'){
+        len--;
+    }
+    dir[len] = '\0';
+}
+
+
