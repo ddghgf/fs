@@ -100,7 +100,7 @@ int do_read(int fd, unsigned char *text, int len);
 int fat_write(unsigned short id, unsigned char *text, int blockoffset, int len);
 
 //某个已打开文件写入指定长度信息
-int do_write(int fd, unsigned char *text, int len, char op);
+int do_write(int fd, unsigned char *text, int len);
 
 //从一个已打开目录文件找到对应名称的文件夹FCB，用于一些不断递归打开文件夹的函数中
 int getFcb(fcb* fcbp, int *dirno, int *diroff, int fd, const char *dir);
@@ -590,7 +590,7 @@ int fat_write(unsigned short id, unsigned char *text, int blockoffset, int len){
     return ret;
 }
 
-int do_write(int fd, unsigned char *text, int len, char op){
+int do_write(int fd, unsigned char *text, int len){
     fcb *fcbp = &openfilelist[fd].open_fcb;
     int blockorder = openfilelist[fd].count / BLOCKSIZE;
     int blockoffset = openfilelist[fd].count % BLOCKSIZE;
@@ -600,26 +600,8 @@ int do_write(int fd, unsigned char *text, int len, char op){
         id = fat1[id].id;
     }
     int ret;
-    if(op == 'a'){
-        char *buf = (char *)malloc(BLOCKSIZE);
-        memcpy(buf, blockaddr[id]+len, BLOCKSIZE - len);
-        ret = fat_write(id, text, blockoffset, len);
-        while(fat1[id].id != END){
-            id = fat1[id].id;
-        }
-        blockoffset = (blockoffset + ret) % BLOCKSIZE;
-        fat_write(id, buf, blockoffset, strlen(buf));
-        fcbp->length += ret;
-        free(buf);
-    }
-    else if(op=='w'){
-        ret = fat_write(id, text, blockoffset, len);
-        fcbp->length += ret;
-    }
-    else{
-        ret = fat_write(id, text, blockoffset, len);
-        fcbp->length=ret > fcbp->length ? ret : fcbp->length;
-    }
+    ret = fat_write(id, text, blockoffset, len);
+    fcbp->length +=ret;
     openfilelist[fd].fcbstate = 1;
     return ret;
 }
@@ -636,18 +618,18 @@ int my_write(int fd){
     printf("  a : append write\n");
     printf("  w : truncate write\n");
     printf("  o : overwrite write\n");
-    char op[DIRLEN];
-    scanf("%s", op);
+    char op;
+    scanf("%s", &op);
     getchar();
-    if(op[0] == 'a'){
+    if(op == 'a'){
         file->count = file->open_fcb.length;
     }
-    else if(op[0] == 'w'){
+    else if(op == 'w'){
         file->count = 0;
         file->open_fcb.length = 0;
         fatFree(fat1[file->open_fcb.first].id);
     }
-    else if(op[0]=='o'){
+    else if(op=='o'){
         file->count=0;
     }
     else{
@@ -664,14 +646,18 @@ int my_write(int fd){
         }
         int len = strlen(content);
         //content[len] = '\n';
-        tmp = do_write(fd, (unsigned char*)content, len-1, op[0]);
+        int tem_length=file->open_fcb.length;
+        tmp = do_write(fd, (unsigned char*)content, len-1);
         if(tmp == -1){
             printf("ERROR:\n");
             printf("my_write: do_write error\n");
             return -1;
         }
-        file->count += tmp;
+        //file->count += tmp;
         ret += tmp;
+        if(op=='o'){
+            file->open_fcb.length=tem_length>ret ? tem_length :ret;
+        }
     }
     my_close(fd);
     return ret;
@@ -870,7 +856,7 @@ int my_touch(char *filename, int attribute, int *rpafd){
     fcb_init(&dirfcb, split_dir[1], fatid, attribute);
     // 写入父亲目录内存
     memcpy(buf, &dirfcb, sizeof(fcb));
-    int write_size = do_write(pafd, buf, sizeof(fcb), 'o');
+    int write_size = do_write(pafd, buf, sizeof(fcb));
     if(write_size == -1){
         printf("ERROR:\n");
         printf("my_touch: do_write error\n");
